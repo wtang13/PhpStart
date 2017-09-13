@@ -7,16 +7,12 @@ $(document).ready(function() {
     $('.s').on('click',function(event) {
         event.preventDefault();
         var values = $(this).closest('.table').serialize();
-        alert(values);
         $(this).closest('.UserInfo').find('.print').css({'display':'inline'});
         
         $.ajax({
            type:"POST",
            url:"http://localhost:8081/UserInfoUpdate/app/doUpdate.php",
            data: values,
-           success: function(data) {
-               alert(data);
-           }
         });
         
         event.preventDefault();

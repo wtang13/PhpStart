@@ -3,7 +3,7 @@
  */
 require ('UpdatePageMethods.php');
 $method = new UpdatePagrMethods();
-$result = $method->doUpdate();
+$result = $method->doUpdateDDB();
 ob_start();
 if (!$result) {
     echo "user exist! please enter different user name";

@@ -1,4 +1,7 @@
 <?php
+require ('vendor/autoload.php');
+use Aws\DynamoDb\Exception\DynamoDbException;
+use Aws\DynamoDb\Marshaler;
 
 class UpdatePagrMethods{
 
@@ -7,10 +10,12 @@ class UpdatePagrMethods{
     protected $userIsEmpty = false;					
     protected $passwordIsEmpty = false;	
     
-    /*init user data with filter, then update in DB
+    
+    
+    /*init user data with filter, then update in RDB
      * return true if input is a new user and finish insert insert else return false
      *      */
-    function doUpdate() 
+    function doUpdateRDB() 
     {
         ini_set('display_startup_errors',1);
         ini_set('display_errors',1);
@@ -23,7 +28,7 @@ class UpdatePagrMethods{
             if (!empty($name) && !empty($gender) && !empty($age) 
                     && !empty($occupation)) { 
                 /** Create database connection */
-
+                
                 $con = mysqli_connect("localhost", "root", "root");
                 if (!$con) {
                     exit('Connect Error (' . mysqli_connect_errno() . ') '
@@ -58,8 +63,10 @@ class UpdatePagrMethods{
             }
         } 
     }
-        /*Print to PDF*/
-    function printToPDF() 
+        
+    
+    /*1. use Get method get data in DB and then print to PDF*/
+    function printToPDFRDB() 
     {
         ini_set('display_startup_errors',1);
         ini_set('display_errors',1);
@@ -139,7 +146,162 @@ class UpdatePagrMethods{
             }
         }
     }
-}
+
+    /*init user data with filter, then update in DDB
+     * return true if input is a new user and finish insert insert else return false
+     *      */
+    function doUpdateDDB()
+    {
+        ini_set('display_startup_errors',1);
+        ini_set('display_errors',1);
+        error_reporting(-1);
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $name = trim($_POST['name']);
+            $gender = trim($_POST['gender']);
+            $age = trim($_POST['age']);
+            $occupation = trim($_POST['occupation']);
+            if (!empty($name) && !empty($gender) && !empty($age) 
+                    && !empty($occupation)) { 
+                
+                date_default_timezone_set('UTC');
+                $sdk = new Aws\Sdk([
+                    'region'   => 'us-west-2',
+                    'version'  => 'latest'
+                ]);
+
+                $dynamodb = $sdk->createDynamoDb();
+                $marshaler = new Marshaler();
+
+                $tableName = 'Users';
+                $json = json_encode([
+                    'name' => $name,
+                    'age' => $age, 
+                    'gender' => $gender,
+                    'occupation' => $occupation
+                ]);
+
+                $params = [
+                    'TableName' => $tableName,
+                    'Item' => $marshaler->marshalJson($json)
+                ];
+
+                try {
+                    $result = $dynamodb->putItem($params);
+                    echo "Added user: " . $name. "\n";
+                } catch (DynamoDbException $e) {
+                    echo "Unable to add user:\n";
+                    echo $e->getMessage() . "\n";
+                  
+                }
+                return true;
+            } else {
+                return false;
+                
+            }
+        } 
+    }
+    
+    function printToPDFDDB()
+    {
+        ini_set('display_startup_errors',1);
+        ini_set('display_errors',1);
+        error_reporting(-1);
+        require('../TCPDF-master/tcpdf.php');
+        
+        // Instanciation of inherited class
+        if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+            // based on POST name, get data from db
+            date_default_timezone_set('UTC');
+            $sdk = new Aws\Sdk([
+                'region'   => 'us-west-2',
+                'version'  => 'latest'
+            ]);
+
+            $dynamodb = $sdk->createDynamoDb();
+            $marshaler = new Marshaler();
+
+            $tableName = 'Users';
+            $name = trim($_GET['name']);
+            $json = json_encode([
+                    ':n' => $name
+                ]);
+            $eav = $marshaler->marshalJson($json);
+            $params = [
+                'TableName' => $tableName,
+                'KeyConditionExpression' =>
+                '#na = :n',
+                'ExpressionAttributeNames'=> [ '#na' => 'name' ],
+                'ExpressionAttributeValues'=> $eav
+            ];
+
+            try {
+                $result = $dynamodb->query($params);
+                foreach ($result['Items'] as $i) {
+                    $user = $marshaler->unmarshalItem($i);
+                    $gender = $user['gender'];
+                    $age = $user['age'];
+                    $occupation = $user['occupation'];
+                }
+            } catch (DynamoDbException $e) {
+                echo "Unable to get item:\n";
+                echo $e->getMessage() . "\n";
+            }
+            
+            if (!empty($name) && !empty($gender) && !empty($age) && !empty($occupation)) { 
+                // create new PDF document
+                $pdf = new TCPDF(PDF_PAGE_ORIENTATION, PDF_UNIT, PDF_PAGE_FORMAT, true, 'UTF-8', false);
+                
+                // set margins
+                $pdf->SetMargins(PDF_MARGIN_LEFT, PDF_MARGIN_TOP, PDF_MARGIN_RIGHT);
+                $pdf->SetHeaderMargin(PDF_MARGIN_HEADER);
+                $pdf->SetFooterMargin(PDF_MARGIN_FOOTER);
+
+                // set auto page breaks
+                $pdf->SetAutoPageBreak(TRUE, PDF_MARGIN_BOTTOM);
+
+                // set image scale factor
+                $pdf->setImageScale(PDF_IMAGE_SCALE_RATIO);
+
+                // set some language-dependent strings (optional)
+                if (@file_exists(dirname(__FILE__).'/lang/eng.php')) {
+                    require_once(dirname(__FILE__).'/lang/eng.php');
+                    $pdf->setLanguageArray($l);
+                }
+
+                // ---------------------------------------------------------
+
+                // set default font subsetting mode
+                $pdf->setFontSubsetting(true);
+
+                // Set font
+                // dejavusans is a UTF-8 Unicode font, if you only need to
+                // print standard ASCII chars, you can use core fonts like
+                // helvetica or times to reduce file size.
+                $pdf->SetFont('dejavusans', '', 14, '', true);
+
+                // Add a page
+                // This method has several options, check the source code documentation for more information.
+                $pdf->AddPage();
+
+                // set text shadow effect
+                $pdf->setTextShadow(array('enabled'=>true, 'depth_w'=>0.2, 'depth_h'=>0.2, 'color'=>array(196,196,196), 'opacity'=>1, 'blend_mode'=>'Normal'));
+
+                $pdf->Cell(0, 0, 'Name: '.$name, 1, 1, 'C', 0, '', 0);
+                $pdf->Cell(0, 0, 'Gender: '.$gender, 1, 1, 'C', 0, '', 0);
+                $pdf->Cell(0, 0, 'Age: '.$age, 1, 1, 'C', 0, '', 0);
+                $pdf->Cell(0, 0, 'Occupation: '.$occupation, 1, 1, 'C', 0, '', 0);
+                // ---------------------------------------------------------
+
+                // Close and output PDF document
+                // This method has several options, check the source code documentation for more information.
+                $pdf->Output('example_001.pdf', 'I');
+                
+            } else {
+                echo 'Error: empty value occur';
+            }
+        }
+    }
+                }
 
 
 
